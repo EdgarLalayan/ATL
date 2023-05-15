@@ -1,4 +1,5 @@
-# PDF Parser ATL
+# Welcome to PDF Parser ATL! 🌟
+
 This is a Python script for parsing data from PDF files. It uses the fitz library for reading PDF files, ocrmypdf for performing OCR (Optical Character Recognition) on scanned PDFs, and requests for fetching PDFs from URLs. The script is designed to extract specific information such as vendor name, date, and monthly cost from PDF documents.
 
 ## Prerequisites
