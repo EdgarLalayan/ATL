@@ -7,19 +7,19 @@ import re
 import io
 import ocrmypdf
 import requests
-#pip install ocrmypdf
-#pip install pytesseract
-
+import csv
+import concurrent.futures
 
 class PDFParser:
     def __init__(self):
         self.result = {
+            "Client":None,
             'Vendor': None,
             'Date': None,
             'MonthlyCost': None
         }   
         self.pattern = r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}"
-
+        self.VENDORS_CSV = 'vendors.csv'
     def get_text(self,pdf,ocr=True):
         text = self._pdf_to_text(pdf,ocr=ocr)
         return text
@@ -63,10 +63,12 @@ class PDFParser:
             data = page_text.replace('\n', '|')
             datas.append(data)
         joined = ''.join(datas)
+        joined = joined.replace('●','').replace('•','')
         if joined !='':
             lst = joined.split()
             for i in lst:
-                if i.count('�') > 1 or i.count('●') == 1 or i.count('•') == 1 :
+                i
+                if i.count('�') > 1 :
                     scanned = True
                     break
             
@@ -81,6 +83,47 @@ class PDFParser:
 
     def _document_checker(self,data):
         joined_data = '|'.join(data)
+
+        csv_file = self.VENDORS_CSV 
+        all_vendors_list = []
+        with open(csv_file, 'r') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                all_vendors_list.append(row[0])
+
+        # The order of elements in found_elements depends on the order of elements 
+        # in all_vendors_list and the order in 
+        # which they are found in the joined_data.
+        
+        dataForVendor = joined_data
+        tryVendors = ['Atlas','WiLine',"Quality Voice & Data"]
+        #Remove exception
+        exception = ['Microsoft Customer',"DocuSign"]
+        pattern = r'\b' + r'\b|\b'.join(re.escape(element) for element in exception) + r'\b'
+        dataForVendor = re.sub(pattern, '', dataForVendor)
+       
+        found_elements = [element for element in all_vendors_list if re.findall(r'\b' + re.escape(element) + r'\b', dataForVendor,re.IGNORECASE)]
+        found_elements = sorted(found_elements, key=len, reverse=True)
+        #print("found_elements:",found_elements)
+        if found_elements:
+            pattern = r'\b(?:' + '|'.join(re.escape(element) for element in found_elements) + r')\b'
+            matches = re.findall(pattern, dataForVendor,re.IGNORECASE)
+            matche = [item for i, item in enumerate(matches) if item not in matches[:i]][0]
+            desired_matche = next((element for element in found_elements if element.lower() == matche.lower()), None)
+            self.result["Vendor"] = desired_matche
+        
+        elif not found_elements:
+            found_elements = [element for element in tryVendors if re.findall(r'\b' + re.escape(element) + r'\b', dataForVendor,re.IGNORECASE)]
+            found_elements = sorted(found_elements, key=len, reverse=True)
+            #print("found_elements:",found_elements)
+            if found_elements:
+                pattern = r'\b(?:' + '|'.join(re.escape(element) for element in found_elements) + r')\b'
+                matches = re.findall(pattern, dataForVendor,re.IGNORECASE)
+                matches = [element for element in found_elements if element in dataForVendor]
+                matche = [item for i, item in enumerate(matches) if item not in matches[:i]][0]
+                desired_matche = next((element for element in found_elements if element.lower() == matche.lower()), None)
+                self.result["Vendor"] = matche
+
 
         if 'Lumen' in joined_data:
             self._parse_lumen(joined_data)
@@ -116,7 +159,7 @@ class PDFParser:
 
         
         else:
-            print("Could not identify vendor.")   
+            print("Could not identify PDF.")   
     
     #Ushio America
     def _parse_ushio_america(self,joinedData):
@@ -136,7 +179,7 @@ class PDFParser:
         
 
             del lst[0]
-        self.result['Vendor'] = "Ushio America"
+        self.result['Client'] = "Ushio America"
         if self.result['Date'] == None:
             dates = re.findall(self.pattern,joinedData)
             if len(dates) != 0:
@@ -158,7 +201,7 @@ class PDFParser:
                     self.result['MonthlyCost'] = lst[3]
 
             del lst[0]
-        self.result['Vendor'] = "Talkdesk, Inc."
+        self.result['Client'] = "Talkdesk, Inc."
 
     #AT&T
     def _parse_att(self,joinedData):
@@ -181,7 +224,7 @@ class PDFParser:
                 if '$' in lst[1]:
                     self.result['MonthlyCost'] = lst[1]
             del lst[0]
-        self.result['Vendor'] = "WiLine"
+        self.result['Client'] = "WiLine"
 
     #Pankow
     def _parse_pankow(self,joinedData):
@@ -205,7 +248,7 @@ class PDFParser:
                 
             
             del lst[0]
-        self.result['Vendor'] = "Charles Pankow Builders"
+        self.result['Client'] = "Charles Pankow Builders"
         if self.result['Date'] == None:
             dates = re.findall(self.pattern,joinedData)
             if len(dates) != 0:
@@ -228,7 +271,7 @@ class PDFParser:
                     self.result['MonthlyCost'] = lst[1]+' $'
             
             del lst[0]
-        self.result['Vendor'] = "Sky Data Vault, LLC"
+        self.result['Client'] = "Sky Data Vault, LLC"
 
     #Claremont Lincoln University
     def _parse_clu(self,joinedData):
@@ -250,7 +293,7 @@ class PDFParser:
                     self.result['MonthlyCost'] = lst[1]
 
             del lst[0]
-        self.result['Vendor'] = "Claremont Lincoln University"
+        self.result['Client'] = "Claremont Lincoln University"
         if self.result['Date'] == None:
             self.result['Date'] = dates[-1]
     
@@ -289,7 +332,7 @@ class PDFParser:
 
             del lst[0]
 
-        self.result['Vendor'] = "ClearFreight"
+        self.result['Client'] = "ClearFreight"
     
     #CCHC   Comprehensive Community Health Centers
     def _parse_cchc(self,joinedData):
@@ -318,7 +361,7 @@ class PDFParser:
                     self.result['MonthlyCost'] = lst[3]
             del lst[0]
 
-        self.result['Vendor'] = "Comprehensive Community Health Centers"
+        self.result['Client'] = "Comprehensive Community Health Centers"
         
         if self.result['Date'] == None:
             if len(dates) != 0:
@@ -341,7 +384,7 @@ class PDFParser:
             if 'Location Total' in lst[0]:
                 self.result["MonthlyCost"] = lst[1].strip()
             del lst[0]
-        self.result['Vendor'] = '8x8,inc.'
+        self.result['Client'] = '8x8,inc.'
 
     #TPx
     def _parse_tpx(self,joinedData):
@@ -367,7 +410,7 @@ class PDFParser:
 
             del lst[0]
 
-        self.result['Vendor'] = "TPx"
+        self.result['Client'] = "TPx"
 
     #RingCentra, inc.
     def _parse_ring_central(self,joinedData):
@@ -383,7 +426,7 @@ class PDFParser:
                 self.result["MonthlyCost"] = cost    
             del lst[0]
 
-        self.result['Vendor'] = "RingCentra, inc."
+        self.result['Client'] = "RingCentra, inc."
 
     #ACC BUSINESS          
     def _parse_acc_business(self,joinedData):
@@ -400,7 +443,7 @@ class PDFParser:
                 
             del lst[0]
         
-        self.result['Vendor'] = "ACC BUSINESS"
+        self.result['Client'] = "ACC Business"
 
     #CenturyLink
     def _parse_century_link(self,joinedData):
@@ -438,17 +481,21 @@ class PDFParser:
             del lst[0]
         self.result["Vendor"] = "Lumen"
        
-    def _scanned_pdf_to_txt(self,input_file):
+    def _process_page(self,page):
+        page_text = page.get_text()
+        data = page_text.replace('\n', '|')
+        return data
+
+    def _scanned_pdf_to_txt(self, input_file):
         with io.BytesIO() as output_buffer:
-            ocrmypdf.ocr(input_file, output_buffer,force_ocr=True)
+            ocrmypdf.ocr(input_file, output_buffer, force_ocr=True)
             output_buffer.seek(0)
             pdf = fitz.open(stream=output_buffer.read(), filetype='pdf')
             datas = []
-            text = ''
-            for page in pdf:
-                page_text =  page.get_text()
-                data = page_text.replace('\n', '|')
-                datas.append(data)
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                page_futures = [executor.submit(self._process_page, page) for page in pdf]
+                datas = [future.result() for future in concurrent.futures.as_completed(page_futures)]
         return datas
 
     def _pdf_to_b64(self,pdf):
@@ -466,14 +513,6 @@ class PDFParser:
             print(f.read())
 
 if __name__ == '__main__':
-    print("*******************************************")
-    print("*                  *                      *")
-    print("*      Welcome to the PDF Scraper!        *")
-    print("*                  *                      *")
-    print("*          Created by Workmovr            *")
-    print("*                  *                      *")
-    print("*******************************************")
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--argument', required=False)
     args = parser.parse_args()
@@ -483,9 +522,9 @@ if __name__ == '__main__':
     parser.dictToJson(res)
 
 #======================#
-#       TESTING
+#       TESTING        #
 #======================#
-# pdf = '/Users/edgarlalayan/Desktop/CASPIO/ATL/Contracts/8X8/8x8_1.pdf'
+# pdf = '/Users/edgarlalayan/Desktop/CASPIO/ATL/Contracts/USHIO/USHIOAMERICA2.pdf'
 # parser = PDFParser()
 # res = parser.parsePDF(pdf,ocr=True)
 # #res = parser.get_text(pdf)
@@ -493,62 +532,3 @@ if __name__ == '__main__':
 
 
 
-
-
-#Checking
-#8x8 Done
-#ACC BUSINESS Done
-#ATLAS Done
-#CCHC Done
-#Clearfreight Done
-#CLU
-#Lumen
-#Pankow
-            
-#TPX + 8X8 + ringCentral+ acc+ Lumen1+ Lumen2 + Lumen3 +
-#CenturyLink only Date
-
-#ACC BUSINESS1 No found MonthlyCost
-#ACC BUSINESS2
-
-#CCHC1  MonthlyCost': None
-#CCHC2   ?
-#CCHC3
-#CCHC4
-
-#ClearFreight1
-#ClearFreight2 ?
-#ClearFreight3 
-#ClearFreight4
-
-# ATLAS == ClearFreight?
-#ATLAS1
-#ATLAS2
-#ATLAS3
-#ATLAS4
-
-#Claremont Lincoln University
-#CLU1 MonthlyCost ?
-#CLU2 
-#CLU3 MonthlyCost ?
-
-
-#SKYDATA1 -
-#SKYDATA2 Date -
-
-#PANKOW1 MonthlyCost?
-#PANKOW2 
-#PANKOW3 WiLine
-#PANKOW4 AT&T BUSINESS check
-#PANKOW5
-
-#TALKDESK1 or CCHC  Date ?
-#TALKDESK2 or CCHC 
-
-#FOLDER TPX Pankow check 
-
-#USHIOAMERICA1 
-#USHIOAMERICA2
-
-#8X81
-#8x82
